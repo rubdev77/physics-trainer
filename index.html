@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="hy">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#152621">
+<title>Ֆիզիկա · Քննության մարզիչ</title>
+<link rel="stylesheet" href="style.css">
+<script type="module" src="app.js"></script>
+</head>
+<body>
+<div class="layout">
+  <aside class="rail">
+    <div class="brand"><span class="logo" aria-hidden="true">Ֆ</span><div><strong>Ֆիզիկա</strong><small>Քննության մարզիչ</small></div></div>
+    <nav aria-label="Ռեժիմներ">
+      <button data-view="practice" aria-label="Ժողովածուներ"><span class="nav-icon" aria-hidden="true">▤</span><span class="nav-text">Ժողովածուներ</span><span class="nav-short" aria-hidden="true">Գրքեր</span></button>
+      <button data-view="exam" aria-label="Փորձնական քննություն"><span class="nav-icon" aria-hidden="true">◷</span><span class="nav-text">Փորձնական քննություն</span><span class="nav-short" aria-hidden="true">Փորձնական</span></button>
+      <button data-view="review" aria-label="Կրկնություն"><span class="nav-icon" aria-hidden="true">↻</span><span class="nav-text">Կրկնություն</span><span class="nav-short" aria-hidden="true">Կրկնել</span></button>
+      <button data-view="stats" aria-label="Վիճակագրություն"><span class="nav-icon" aria-hidden="true">▥</span><span class="nav-text">Վիճակագրություն</span><span class="nav-short" aria-hidden="true">Ամփոփում</span></button>
+    </nav>
+    <div class="rail-foot"><span class="dot"></span> Տվյալները այս դիտարկիչում են</div>
+  </aside>
+  <main id="content" tabindex="-1"><p>Առաջադրանքները բեռնվում են…</p></main>
+</div>
+<dialog id="zoom" aria-label="Բնօրինակի խոշորացում">
+  <div class="dialog-head"><strong>Բնօրինակը</strong><div class="row"><button id="zoom-page" class="plain" hidden>Ամբողջ էջը</button><button id="zoom-scale" class="plain" aria-pressed="false">Խոշորացնել</button><button id="close-zoom" class="plain" autofocus>Փակել ×</button></div></div>
+  <div id="zoom-pages"></div>
+</dialog>
+<dialog id="stats-reset-dialog" aria-labelledby="stats-reset-title">
+  <h2 id="stats-reset-title">Զրոյացնե՞լ վիճակագրությունը</h2>
+  <p>Այս դիտարկիչում կջնջվի փորձերի պատմությունը։ Պահված մարզումները և նշված առաջադրանքները կմնան։</p>
+  <form class="row" method="dialog">
+    <button class="plain" value="cancel" autofocus>Չեղարկել</button>
+    <button class="primary danger" value="reset">Զրոյացնել</button>
+  </form>
+</dialog>
+</body>
+</html>
+
