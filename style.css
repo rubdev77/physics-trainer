@@ -263,6 +263,15 @@ input[type=number],select,.drawing-text input {
   position:absolute;inset:0;width:100%;height:100%;cursor:crosshair;touch-action:none;
   -webkit-touch-callout:none;user-select:none
 }
+.shape-anchor {
+  position:absolute;width:11px;height:11px;border:2px solid var(--accent);border-radius:50%;
+  background:var(--paper);transform:translate(-50%,-50%);pointer-events:none
+}
+.shape-hint {display:none;margin-top:6px}
+@media (any-pointer:coarse) {
+  .shape-hint {display:block}
+}
+.drawing-tools button {touch-action:manipulation}
 .annotation-paper img {display:block;width:100%;height:auto;pointer-events:none}
 .annotation-paper img[data-diagram] {width:56%;margin-inline:auto}
 .grid-paper {

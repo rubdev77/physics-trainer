@@ -80,7 +80,9 @@ export function drawingSurface(kind, visible, images = '') {
     <div class="drawing-paper ${board?'grid-paper':'annotation-paper'}">
       ${board ? '' : `<template>${images}</template>`}
       <canvas aria-label="${title}"></canvas>
+      <span class="shape-anchor" aria-hidden="true" hidden></span>
     </div>
+    <small class="shape-hint" aria-live="polite" hidden></small>
     <small class="drawing-status" role="status"></small>
   </section>`;
 }
@@ -256,6 +258,8 @@ function attachSurface(panel, questionId, signal) {
   const key = board ? 'board' : questionId;
   const paper = panel.querySelector('.drawing-paper');
   const canvas = paper.querySelector('canvas');
+  const anchorMarker = paper.querySelector('.shape-anchor');
+  const shapeHint = panel.querySelector('.shape-hint');
   const context = canvas.getContext('2d');
   const toolbar = panel.querySelector('.drawing-tools');
   const status = panel.querySelector('.drawing-status');
@@ -272,6 +276,11 @@ function attachSurface(panel, questionId, signal) {
   let pointer = null;
   let draft = null;
   let textPoint = null;
+  let shapeAnchor = null;
+  let touchStart = null;
+  let shapeDragged = false;
+  let toolbarTouch = null;
+  let lastToolbarTap = null;
   let width = 0;
   let height = 0;
   let paintedPoints = 0;
@@ -343,6 +352,24 @@ function attachSurface(panel, questionId, signal) {
     return [fraction(event.clientX-bounds.left,bounds.width),fraction(event.clientY-bounds.top,bounds.height)];
   }
 
+  function updateShapeHint() {
+    shapeHint.hidden = !shapes.includes(tool);
+    shapeHint.textContent = shapeAnchor ? 'Հպեք երկրորդ կետին։' : 'Քաշեք մատով կամ հպեք երկու կետի։';
+    anchorMarker.hidden = !shapeAnchor;
+    if (shapeAnchor) {
+      anchorMarker.style.left = `${shapeAnchor[0] * 100}%`;
+      anchorMarker.style.top = `${shapeAnchor[1] * 100}%`;
+    }
+  }
+
+  function updatePoint(position) {
+    if (touchStart && !shapeDragged) {
+      shapeDragged = Math.hypot((position[0]-touchStart[0])*width,(position[1]-touchStart[1])*height) >= 6;
+      if (!shapeDragged) return;
+    }
+    addPoint(position);
+  }
+
   function addPoint(position) {
     const last = draft.points.at(-1);
     if (position[0] === last[0] && position[1] === last[1]) return;
@@ -370,8 +397,14 @@ function attachSurface(panel, questionId, signal) {
       return;
     }
     pointer = event.pointerId;
-    canvas.setPointerCapture(pointer);
-    draft = {tool,ink:activeInk(),points:[position]};
+    if (!canvas.hasPointerCapture(pointer)) canvas.setPointerCapture(pointer);
+    touchStart = event.pointerType === 'touch' && shapes.includes(tool) ? position : null;
+    if (!touchStart && shapeAnchor) {
+      shapeAnchor = null;
+      updateShapeHint();
+    }
+    shapeDragged = false;
+    draft = {tool,ink:activeInk(),points:[(touchStart && shapeAnchor) || position]};
     paintedPoints = 0;
     if (shapes.includes(tool)) capturePreview();
     else paintPending();
@@ -380,15 +413,29 @@ function attachSurface(panel, questionId, signal) {
     if (event.pointerId !== pointer) return;
     const bounds = canvas.getBoundingClientRect();
     const samples = event.getCoalescedEvents?.();
-    for (const sample of samples?.length ? samples : [event]) addPoint(point(sample,bounds));
+    for (const sample of samples?.length ? samples : [event]) updatePoint(point(sample,bounds));
     if (drawingFrame === null) drawingFrame = requestAnimationFrame(paintPending);
   },{signal});
   canvas.addEventListener('pointerup',event=>{
     if (event.pointerId !== pointer) return;
-    addPoint(point(event));
+    const position = point(event);
+    updatePoint(position);
+    if (touchStart) {
+      if (!shapeDragged && shapeAnchor) addPoint(position);
+      shapeAnchor = shapeDragged || shapeAnchor ? null : touchStart;
+      updateShapeHint();
+    }
     finishStroke();
+    touchStart = null;
   },{signal});
-  canvas.addEventListener('lostpointercapture',event=>{if (event.pointerId === pointer) finishStroke();},{signal});
+  function interruptStroke(event) {
+    if (event.pointerId !== pointer) return;
+    if (shapes.includes(draft.tool)) draft.points.length = 1;
+    finishStroke();
+    touchStart = null;
+  }
+  canvas.addEventListener('pointercancel',interruptStroke,{signal});
+  canvas.addEventListener('lostpointercapture',interruptStroke,{signal});
   textForm.addEventListener('submit',event=>{
     event.preventDefault();
     event.stopPropagation();
@@ -458,7 +505,7 @@ function attachSurface(panel, questionId, signal) {
     if (restoreFocus) button.focus({preventScroll:true});
   }
 
-  function toggleMenu(button) {
+  function toggleMenu(button, keyboard) {
     const wasOpen = openMenu?.button === button;
     closeMenu();
     if (wasOpen) return;
@@ -469,11 +516,13 @@ function attachSurface(panel, questionId, signal) {
     popover.hidden = false;
     const dockTop = document.querySelector('.bottom-bar')?.getBoundingClientRect().top ?? innerHeight;
     if (toolbar.getBoundingClientRect().bottom + popover.offsetHeight + 12 > dockTop) toolbar.dataset.menuSide = 'top';
-    (popover.querySelector('[aria-pressed=true]') || popover.querySelector('button')).focus({preventScroll:true});
+    if (keyboard) (popover.querySelector('[aria-pressed=true]') || popover.querySelector('button')).focus({preventScroll:true});
   }
 
   function selectTool(next) {
+    shapeAnchor = null;
     tool = next;
+    updateShapeHint();
     workspacePreferences[toolPreference] = next;
     store('preferences',workspacePreferences);
     for (const button of toolbar.querySelectorAll('[data-tool]')) button.setAttribute('aria-pressed',button.dataset.tool === next);
@@ -486,7 +535,9 @@ function attachSurface(panel, questionId, signal) {
     if (openMenu && !toolbar.contains(event.target)) closeMenu();
   },{signal});
   toolbar.addEventListener('focusout',event=>{
-    if (!toolbar.contains(event.relatedTarget)) closeMenu();
+    // Tapping another button can blur the current one without moving focus to the new button.
+    const next = event.relatedTarget;
+    if (next && next !== document.body && !toolbar.contains(next)) closeMenu();
   },{signal});
   toolbar.addEventListener('keydown',event=>{
     if (event.key !== 'Escape' || !openMenu) return;
@@ -499,27 +550,59 @@ function attachSurface(panel, questionId, signal) {
     toolbar.querySelectorAll('[data-ink]').forEach(button=>button.setAttribute('aria-pressed',button.dataset.ink === ink));
   },{signal});
 
-  panel.addEventListener('click',event=>{
-    const selected = event.target.closest('[data-tool]');
-    const menu = event.target.closest('[data-menu]');
-    const swatch = event.target.closest('[data-ink]');
-    const action = event.target.closest('[data-drawing-action]');
+  const toolControl = '[data-tool], [data-menu], [data-ink]';
+  function activateToolControl(button, keyboard = false) {
+    const {menu,ink,tool:nextTool} = button.dataset;
     if (menu) {
-      toggleMenu(menu);
-    } else if (swatch) {
-      workspacePreferences.ink = swatch.dataset.ink;
+      toggleMenu(button,keyboard);
+    } else if (ink) {
+      workspacePreferences.ink = ink;
       store('preferences',workspacePreferences);
       workspace.dispatchEvent(new Event('drawing-color'));
       if (tool === 'eraser') selectTool('pencil');
       closeMenu(true);
-    } else if (selected) {
-      selectTool(selected.dataset.tool);
+    } else {
+      selectTool(nextTool);
       closeMenu(shapes.includes(tool));
-    } else if (action?.dataset.drawingAction === 'undo') {
+    }
+  }
+
+  toolbar.addEventListener('pointerdown',event=>{
+    const button = event.target.closest(toolControl);
+    if (event.pointerType !== 'touch' || !button) return;
+    toolbarTouch = {button,id:event.pointerId,x:event.clientX,y:event.clientY};
+  },{signal});
+  toolbar.addEventListener('pointercancel',event=>{
+    if (event.pointerId === toolbarTouch?.id) toolbarTouch = null;
+  },{signal});
+  toolbar.addEventListener('pointerup',event=>{
+    if (event.pointerId !== toolbarTouch?.id) return;
+    const {button,x,y} = toolbarTouch;
+    toolbarTouch = null;
+    if (Math.hypot(event.clientX-x,event.clientY-y) > 12 || !button.contains(event.target)) return;
+    // A touch can dispatch pointer events without generating a click after scrolling.
+    lastToolbarTap = {button,time:performance.now()};
+    activateToolControl(button);
+  },{signal});
+
+  panel.addEventListener('click',event=>{
+    const button = event.target.closest(toolControl);
+    if (button) {
+      const duplicate = lastToolbarTap?.button === button && performance.now() - lastToolbarTap.time < 750 &&
+        (event.detail > 0 || event.pointerType === 'touch' || event.sourceCapabilities?.firesTouchEvents);
+      if (!duplicate) activateToolControl(button,event.detail === 0);
+      return;
+    }
+    const action = event.target.closest('[data-drawing-action]');
+    if (action?.dataset.drawingAction === 'undo') {
+      shapeAnchor = null;
+      updateShapeHint();
       marks = marks.slice(0,-1);
       save();
       repaint();
     } else if (action?.dataset.drawingAction === 'clear' && window.confirm('Մաքրե՞լ այս աշխատանքային տարածքը։')) {
+      shapeAnchor = null;
+      updateShapeHint();
       marks = [];
       cancelText();
       save();
@@ -538,6 +621,7 @@ function attachSurface(panel, questionId, signal) {
   resize.observe(paper);
   signal.addEventListener('abort',()=>resize.disconnect(),{once:true});
   undoButton.disabled = clearButton.disabled = marks.length === 0;
+  updateShapeHint();
 
   return {
     finishStroke,
@@ -545,6 +629,8 @@ function attachSurface(panel, questionId, signal) {
       if (!visible) {
         closeMenu();
         finishStroke();
+        shapeAnchor = null;
+        updateShapeHint();
         cancelText();
         canvas.width = canvas.height = 1;
         width = height = 0;
