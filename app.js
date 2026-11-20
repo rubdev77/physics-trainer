@@ -1,5 +1,10 @@
+import {spring, step, settle, stillMoving, reducedMotion} from './spring.js';
+import {attachWorkspace, drawingSurface, workspacePreferences} from './workspace.js';
+import {icon} from './icons.js';
+
 const content = document.querySelector('#content');
 const dialog = document.querySelector('#zoom');
+const bottomBar = document.querySelector('.bottom-bar');
 const storageKey = 'fizika-bank1-v1';
 const modes = {practice:'Մարզում', exam:'Փորձնական քննություն', review:'Կրկնություն', stats:'Վիճակագրություն'};
 const reviewNames = {errors:'Սխալներ', slow:'Դանդաղ լուծվածներ', marked:'Նշվածներ'};
@@ -13,6 +18,7 @@ let practiceKey = null;
 let opened = false;
 let resultIndex = null;
 let tick = null;
+let detachWorkspace;
 let state = {sessions:{}, practiceByTopic:{}, lastPractice:null, attempts:[], marks:{}, settings:{}};
 let storageFailed = false;
 try { state = {...state, ...JSON.parse(localStorage.getItem(storageKey))}; }
@@ -123,7 +129,7 @@ function resumePanel(session = active(), legacy = false) {
   return `<section class="card resume row between"><div>
     <h2>${topic ? chapterName(topic) : session.finished ? 'Վերջին արդյունքը' : 'Պահված աշխատաշրջան'}</h2>
     <p class="muted">${topic ? questionBookName(questions.get(session.ids[0])) + ' · ' : ''}${done} / ${session.ids.length} պատասխանված</p></div>
-    <button class="plain" id="${legacy?'resume-legacy':'resume'}">${session.finished ? 'Դիտել արդյունքը' : 'Շարունակել'}</button></section>`;
+    <button class="plain" id="${legacy?'resume-legacy':'resume'}">${session.finished ? 'Դիտել արդյունքը' : 'Շարունակել'}${icon('chevronRight')}</button></section>`;
 }
 function catalogPath() {
   const book = books.get(catalog.book);
@@ -145,7 +151,7 @@ function numberRange(pool) {
 }
 function catalogRow({number,title,detail,button,id}) {
   const body = `<span class="catalog-index">${number}</span><span class="catalog-copy"><strong>${title}</strong><small>${detail}</small></span>`;
-  return button ? `<button type="button" class="catalog-row" data-${button}="${id}">${body}<span class="catalog-arrow" aria-hidden="true">→</span></button>` :
+  return button ? `<button type="button" class="catalog-row" data-${button}="${id}">${body}<span class="catalog-arrow">${icon('chevronRight')}</span></button>` :
     `<div class="catalog-row unavailable">${body}</div>`;
 }
 function renderCatalog() {
@@ -183,9 +189,17 @@ function renderCatalog() {
   return catalogPath() + markupHeader(heading) + (!book ? resumePanel() + (practiceKey && state.sessions.practice ? resumePanel(state.sessions.practice,true) : '') : '') +
     `<div class="catalog-stack">${rows.join('')}</div>` + (canJump ? jumpForm(null) : '');
 }
+function toggleSwitch(name, label, checked, controls = '', glyph = '') {
+  return `<label class="shuffle-switch"${glyph ? ` title="${label}"` : ''}>
+    <span class="switch-label">${label}</span>
+    <span class="switch-control">
+      <input type="checkbox" role="switch" name="${name}" ${checked ? 'checked' : ''} ${controls ? `aria-controls="${controls}"` : ''}>
+      <span class="switch-track" aria-hidden="true"><span class="switch-thumb">${glyph ? icon(glyph) : ''}</span></span>
+    </span>
+  </label>`;
+}
 function renderSettings() {
   const settings = state.settings[view] || {};
-  const checked = (flag) => flag ? 'checked' : '';
   const exam = view === 'exam';
   return `<form id="setup" class="card settings">
     ${exam ? `<label class="form-field">Առաջադրանքների շրջանակը
@@ -197,10 +211,10 @@ function renderSettings() {
     <label class="form-field">Ժամանակը (րոպե)
       <input name="minutes" type="number" min="1" max="600" required value="${settings.minutes || 30}"></label></div>` : ''}
     <details class="options-panel" ${exam ? 'open' : ''}><summary>Հերթականություն</summary>
-      <label class="control"><input type="checkbox" name="random" ${checked(settings.random ?? exam)}>Խառնել առաջադրանքները</label>
-      <label class="control"><input type="checkbox" name="mix" ${checked(settings.mix)}>Խառնել պատասխանների տարբերակները</label>
+      ${toggleSwitch('random','Խառնել առաջադրանքները',settings.random ?? exam)}
+      ${toggleSwitch('mix','Խառնել պատասխանների տարբերակները',settings.mix)}
     </details>
-    <div class="row settings-actions"><button class="primary" id="start">${exam ? 'Սկսել քննությունը' : view==='review' ? 'Սկսել կրկնությունը' : active() ? 'Սկսել նոր մարզում' : 'Սկսել մարզումը'}</button>
+    <div class="row settings-actions"><button class="primary" id="start">${icon('play')}${exam ? 'Սկսել քննությունը' : view==='review' ? 'Սկսել կրկնությունը' : active() ? 'Սկսել նոր մարզում' : 'Սկսել մարզումը'}</button>
     <small id="availability" aria-live="polite"></small></div>
   </form>`;
 }
@@ -252,7 +266,7 @@ function jumpForm(session) {
   return `<form class="card jump-form" id="jump-form">
     <div class="jump-context"><label for="jump-number">Անցնել առաջադրանքի համարով</label>${bookSelect}</div>
     <div class="jump-controls"><input id="jump-number" name="number" type="number" inputmode="numeric" step="1" required placeholder="${session ? numberOf(currentId(session)) : `Օրինակ՝ ${(chapterPool(catalog.topic)[0] || data.questions[0]).number}`}">
-    <button class="plain" type="submit">Անցնել</button></div>
+    <button class="plain" type="submit">Անցնել${icon('arrowRight')}</button></div>
     <small class="muted" id="jump-message" role="status"></small>
   </form>`;
 }
@@ -338,7 +352,7 @@ function start(form) {
   showProblem();
 }
 function img(src, alt) {
-  return `<img src="${src}" alt="${alt}" draggable="false">`;
+  return `<img src="${src}" alt="${alt}" decoding="async" draggable="false">`;
 }
 function fragment(item, label) {
   const [width,height] = item.size;
@@ -347,9 +361,8 @@ function fragment(item, label) {
     `<span style="--x:${-x};--y:${-y};--w:${w};--h:${h}"></span>`).join('');
   return `<span class="fragment" role="img" aria-label="${label}" style="--source:url('${item.image}');--width:${width};--height:${height}">${words}</span>`;
 }
-function renderProblem(session, index, results = false) {
-  const id = session.ids[index];
-  const q = questions.get(id);
+function renderAnswers(session, q, results = false) {
+  const {id} = q;
   const choice = session.answers[id];
   const reveal = results || (session.mode !== 'exam' && Boolean(choice));
   const labels = session.orders[id];
@@ -368,15 +381,33 @@ function renderProblem(session, index, results = false) {
     const label = labels.indexOf(q.answerId) + 1;
     feedback = `<p role="status" class="feedback ${correct ? 'good' : 'bad'}">${correct ? 'Ճիշտ է։' : choice ? `Սխալ է։ Ճիշտ տարբերակը՝ ${label}։` : `Պատասխան չկա։ Ճիշտ տարբերակը՝ ${label}։`}</p>`;
   }
-  return `<article class="card question"><div class="problem-meta row between"><div>
+  return `<div class="answers">${options}</div>${feedback}`;
+}
+function renderProblem(session, index, results = false) {
+  const id = session.ids[index];
+  const q = questions.get(id);
+  const annotationImages = (q.useSource ? q.source : q.stem.map(item=>item.image))
+    .map((src,i)=>img(src,`Առաջադրանք ${q.number} · հատված ${i+1}`))
+    .concat(q.figures.map((src,i)=>`<img src="${src}" data-diagram alt="Նկար ${i+1}" decoding="async" draggable="false">`));
+  const annotate = workspacePreferences.annotation;
+  const board = workspacePreferences.board;
+  return `<article class="card question" data-workspace="${q.id}"><div class="problem-meta row between"><div>
     <div class="problem-title"><h3 tabindex="-1">Առաջադրանք № ${q.number}</h3>${results ? '' : '<span class="clock" id="clock"></span>'}</div><small>${questionBookName(q)} · ${chapterName(topics.get(q.topicId))} · Էջ ${q.pages.join('–')}</small></div>
-    <div class="row"><button id="magnify" class="plain">Բնօրինակը</button><button id="flag" class="plain" aria-pressed="${Boolean(state.marks[id])}">${state.marks[id] ? '◆ Հանել նշումը' : '◇ Նշել'}</button></div></div>
+    <div class="row problem-actions"><button id="magnify" class="plain">${icon('page')}Բնօրինակը</button><button id="flag" class="plain" aria-pressed="${Boolean(state.marks[id])}">${icon('bookmark')}<span>${state.marks[id] ? 'Հանել նշումը' : 'Նշել'}</span></button>
+    <div class="workspace-switches" role="group" aria-label="Սևագրի կարգավորումներ">
+      ${toggleSwitch('annotation','Գրել առաջադրանքի վրա',annotate,'annotation-drawing','pencil')}
+      ${toggleSwitch('board','Վանդակավոր տախտակ',board,'board-drawing','grid')}
+    </div></div></div>
     ${q.reviewNote ? `<p class="notice">Ստուգման ենթակա պատասխան։${results || session.mode !== 'exam' ? ' ' + q.reviewNote : ''}</p>` : ''}
+    <div class="problem-reading" ${annotate ? 'hidden' : ''}>
     ${q.useSource ? `<div class="source-sheets">${q.source.map((src,i)=>`<button class="source-sheet" data-source="${i}" title="Խոշորացնել բնօրինակը">${img(src,`Էջ ${q.pages[i]} · Խոշորացնել`)}</button>`).join('')}</div>
       <p class="muted source-help">Ընտրեք բնօրինակում նշված տարբերակի համարը։</p>` :
       `<div class="stem">${q.stem.map((item,i)=>fragment(item,`Առաջադրանք ${q.number}, հատված ${i+1}`)).join('')}</div>`}
     ${q.figures.length ? `<div class="figures">${q.figures.map((src,i)=>`<button class="figure" data-figure="${i}" title="Խոշորացնել նկարը">${img(src,`Նկար ${i+1} · Խոշորացնել`)}</button>`).join('')}</div>` : ''}
-    <div class="answers">${options}</div>${feedback}</article>`;
+    </div>
+    ${drawingSurface('annotation',annotate,annotationImages.join(''))}
+    <div class="answer-area">${renderAnswers(session,q,results)}</div>
+    ${drawingSurface('board',board)}</article>`;
 }
 function renderSession(session) {
   const exam = session.mode === 'exam';
@@ -388,16 +419,16 @@ function renderSession(session) {
     </div></details>` : '';
   return `${view === 'practice' && catalog.topic ? catalogPath() : ''}
   <header class="session-head"><h1>${modes[view]}</h1>
-  <small>${current} / ${session.ids.length} · Պատասխանված է ${done}</small>
+  <small class="session-count">${current} / ${session.ids.length} · Պատասխանված է ${done}</small>
   <div class="track" role="progressbar" aria-label="Պատասխանված առաջադրանքներ" aria-valuenow="${done}" aria-valuemin="0" aria-valuemax="${session.ids.length}"><div style="width:${percent}%"></div></div></header>
   ${jumpForm(session)}
   ${renderProblem(session,session.index)}
   <div class="row between session-actions">
-    <button id="leave" class="plain">${exam ? 'Դուրս գալ' : practiceKey && view==='practice' ? 'Դեպի գլուխը' : 'Պահել և դուրս գալ'}</button>
+    <button id="leave" class="plain">${icon('exit')}${exam ? 'Դուրս գալ' : practiceKey && view==='practice' ? 'Դեպի գլուխը' : 'Պահել և դուրս գալ'}</button>
     <div class="row">
-      <button class="plain" data-jump="${session.index-1}" ${current===1?'disabled':''}>Նախորդը</button>
-      ${current < session.ids.length ? `<button class="primary" data-jump="${current}">${exam && !session.answers[currentId(session)] ? 'Բաց թողնել' : 'Հաջորդը'}</button>` : ''}
-      ${exam || current === session.ids.length ? `<button id="finish" class="${current===session.ids.length?'primary':'plain'}">${exam ? 'Հանձնել' : 'Ավարտել'}</button>` : ''}
+      <button class="plain" data-jump="${session.index-1}" ${current===1?'disabled':''}>${icon('chevronLeft')}Նախորդը</button>
+      ${current < session.ids.length ? `<button class="primary" data-jump="${current}"><span>${exam && !session.answers[currentId(session)] ? 'Բաց թողնել' : 'Հաջորդը'}</span>${icon('chevronRight')}</button>` : ''}
+      ${exam || current === session.ids.length ? `<button id="finish" class="${current===session.ids.length?'primary':'plain'}">${icon('check')}${exam ? 'Հանձնել' : 'Ավարտել'}</button>` : ''}
     </div>
   </div>${map}`;
 }
@@ -446,7 +477,7 @@ function renderStats() {
   }).join('');
   return markupHeader('Վիճակագրություն') + `<div class="card stats-overview row between"><div>
     <h2>${first.size} / ${data.questions.length} լուծված</h2><p class="muted">Առաջին փորձերն ու միջին ժամանակը՝ ըստ գլխի։</p></div>
-    <button class="plain danger-text" id="reset-stats" ${state.attempts.length?'':'disabled'}>Զրոյացնել վիճակագրությունը</button></div>${bookStats}`;
+    <button class="plain danger-text" id="reset-stats" ${state.attempts.length?'':'disabled'}>${icon('trash')}Զրոյացնել վիճակագրությունը</button></div>${bookStats}`;
 
 }
 function showProblem() {
@@ -455,23 +486,164 @@ function showProblem() {
   question.querySelector('h3').focus({preventScroll:true});
   question.scrollIntoView({block:'start',behavior:'instant'});
 }
-function renderAtAnswer(anchor) {
-  const top = window.scrollY;
-  const offset = el(anchor)?.getBoundingClientRect().top;
-  render();
-  const updated = el(anchor);
-  const restored = updated && offset !== undefined ? window.scrollY + updated.getBoundingClientRect().top - offset : top;
-  window.scrollTo({top:restored,behavior:'instant'});
-  if (!updated?.disabled && document.activeElement === document.body) updated?.focus({preventScroll:true});
+function updateAnswer(session, question, button) {
+  const offset = button.getBoundingClientRect().top;
+  el('.answer-area').innerHTML = renderAnswers(session,question);
+  const done = Object.keys(session.answers).length;
+  el('.session-count').textContent = `${session.index + 1} / ${session.ids.length} · Պատասխանված է ${done}`;
+  const track = el('.session-head .track');
+  track.setAttribute('aria-valuenow',done);
+  track.firstElementChild.style.width = `${100 * done / session.ids.length}%`;
+  const jump = el(`.number[data-jump="${session.index}"]`);
+  if (jump) {
+    jump.classList.add('done');
+    jump.setAttribute('aria-label', `Առաջադրանք ${question.number}, պատասխանված${state.marks[question.id]?', նշված':''}`);
+    const next = el(`.session-actions button[data-jump="${session.index+1}"] span`);
+    if (next) next.textContent = 'Հաջորդը';
+  }
+  const updated = el(`[data-option="${button.dataset.option}"]`);
+  const shift = updated.getBoundingClientRect().top - offset;
+  if (Math.abs(shift) > 1) window.scrollBy({top:shift,behavior:'instant'});
+  if (!updated.disabled && document.activeElement === document.body) updated.focus({preventScroll:true});
+  updateClock();
 }
+const switchMotion = new WeakMap();
+function animateSwitch(input) {
+  if (reducedMotion.matches) return;
+  const track = input.nextElementSibling;
+  const thumb = track.firstElementChild;
+  let animation = switchMotion.get(input);
+  if (!animation) {
+    animation = {position:spring(Number(!input.checked),320,18),stretch:spring(0,300,20),frame:null};
+    switchMotion.set(input,animation);
+  }
+  const {position,stretch} = animation;
+  position.target = Number(input.checked);
+  stretch.velocity = 60;
+  if (animation.frame !== null) return;
+
+  const clamp = value => Math.max(0,Math.min(1,value));
+  const distance = track.clientWidth - 32;
+  function paint() {
+    const travel = clamp(position.value);
+    const grow = clamp(stretch.value) * distance / 2;
+    const x = position.value * distance - (input.checked ? grow * travel : 0);
+    track.style.setProperty('--switch-fill',`${travel * 100}%`);
+    thumb.style.width = `${26 + grow}px`;
+    thumb.style.transform = `translateX(${x}px)`;
+  }
+  let lastTime = performance.now();
+  function tick(time) {
+    if (!input.isConnected || reducedMotion.matches || (!stillMoving(position) && !stillMoving(stretch))) {
+      track.style.removeProperty('--switch-fill');
+      thumb.style.removeProperty('width');
+      thumb.style.removeProperty('transform');
+      switchMotion.delete(input);
+      return;
+    }
+    const dt = Math.min((time - lastTime) / 1000,1 / 30) / 4;
+    lastTime = time;
+    for (let i = 0; i < 4; i++) {
+      step(position,dt);
+      step(stretch,dt);
+    }
+    paint();
+    animation.frame = requestAnimationFrame(tick);
+  }
+  paint();
+  animation.frame = requestAnimationFrame(tick);
+}
+function animateBottomBar(bar) {
+  // Match the reference's width, icon pop, and indicator springs.
+  const motion = matchMedia('(prefers-reduced-motion: reduce)');
+  const indicator = bar.querySelector('.bottom-indicator');
+  const buttons = [...bar.querySelectorAll('[data-view]')].map(button => ({
+    button,
+    label:button.querySelector('.bottom-label'),
+    icon:button.querySelector('svg'),
+    width:spring(0,300,26),
+    scale:spring(1,520,14)
+  }));
+  const left = spring(0,340,28);
+  const width = spring(0,340,28);
+  const labelSprings = buttons.flatMap(item=>[item.width,item.scale]);
+  const indicatorSprings = [left,width];
+  let current = buttons[0];
+  let frame = null;
+  let lastTime = null;
+
+  function updateTargets() {
+    for (const item of buttons) {
+      item.fullWidth = item.label.firstElementChild.offsetWidth;
+      item.width.target = item === current ? item.fullWidth : 0;
+    }
+  }
+  function paintLabels() {
+    for (const {label,icon,width,scale,fullWidth} of buttons) {
+      label.style.width = Math.max(0,width.value) + 'px';
+      label.style.opacity = Math.max(0,Math.min(1,width.value / fullWidth * 1.4 - .4));
+      icon.style.transform = `scale(${scale.value})`;
+    }
+    left.target = current.button.offsetLeft;
+    width.target = current.button.offsetWidth;
+  }
+  function paintIndicator() {
+    indicator.style.transform = `translateX(${left.value}px)`;
+    indicator.style.width = Math.max(0,width.value) + 'px';
+  }
+  function snap() {
+    if (frame !== null) cancelAnimationFrame(frame);
+    frame = lastTime = null;
+    labelSprings.forEach(settle);
+    paintLabels();
+    indicatorSprings.forEach(settle);
+    paintIndicator();
+  }
+  function tick(time) {
+    const dt = Math.min((time - lastTime) / 1000,1 / 30) / 4;
+    lastTime = time;
+    for (let i = 0; i < 4; i++) labelSprings.forEach(spring=>step(spring,dt));
+    paintLabels();
+    for (let i = 0; i < 4; i++) indicatorSprings.forEach(spring=>step(spring,dt));
+    paintIndicator();
+    if ([...labelSprings,...indicatorSprings].some(stillMoving)) frame = requestAnimationFrame(tick);
+    else snap();
+  }
+  function animate() {
+    if (motion.matches) snap();
+    else if (frame === null) {
+      lastTime = performance.now();
+      frame = requestAnimationFrame(tick);
+    }
+  }
+  bar.dataset.animated = '';
+  updateTargets();
+  snap();
+  window.addEventListener('resize',()=>{ updateTargets(); snap(); });
+  motion.addEventListener('change',snap);
+  return view => {
+    const next = buttons.find(item=>item.button.dataset.view === view);
+    if (next === current) return;
+    current = next;
+    updateTargets();
+    current.scale.value = .72;
+    current.scale.velocity = 6;
+    animate();
+  };
+}
+const selectBottomMode = animateBottomBar(bottomBar);
 function render(focus = false) {
-  document.querySelectorAll('[data-view]').forEach(button => {
+  bottomBar.querySelectorAll('[data-view]').forEach(button => {
     if (button.dataset.view === view) button.setAttribute('aria-current','page');
     else button.removeAttribute('aria-current');
   });
+  selectBottomMode(view);
   const session = active();
+  detachWorkspace?.();
   content.innerHTML = `<p id="storage-warning" role="alert" class="notice" ${storageFailed?'':'hidden'}>Դիտարկիչում տվյալների պահպանումը հնարավոր չէ։</p>` + (
     view === 'stats' ? renderStats() : !opened || !session ? renderSetup() : session.finished ? renderResults(session) : renderSession(session));
+  const workspace = el('[data-workspace]');
+  detachWorkspace = workspace ? attachWorkspace(workspace) : null;
   if (el('#setup')) updateAvailability();
   restartTick();
   updateClock();
@@ -489,12 +661,13 @@ function updateClock() {
   display.setAttribute('aria-label',s.deadline ? 'Մնացած ժամանակը' : 'Անցած ժամանակը');
   display.classList.toggle('urgent',Boolean(s.deadline && ms <= 60000));
 }
-document.querySelector('.rail nav').addEventListener('click',event=>{
+bottomBar.addEventListener('click',event=>{
   const button = event.target.closest('[data-view]');
   if (data && button) changeView(button.dataset.view);
 });
 content.addEventListener('change',event=>{
   if (event.target.name === 'scope') updateAvailability();
+  if (event.target.matches('.switch-control input')) animateSwitch(event.target);
 });
 content.addEventListener('submit',event=>{
   const form = event.target;
@@ -572,7 +745,7 @@ content.addEventListener('click', event => {
     if (button.id === 'flag') {
       if (state.marks[id]) delete state.marks[id]; else state.marks[id] = true;
       button.setAttribute('aria-pressed', Boolean(state.marks[id]));
-      button.textContent = state.marks[id] ? '◆ Հանել նշումը' : '◇ Նշել';
+      button.querySelector('span').textContent = state.marks[id] ? 'Հանել նշումը' : 'Նշել';
       const jump = el(`[data-jump="${session.index}"].number`);
       if (jump) {
         jump.classList.toggle('flagged',Boolean(state.marks[id]));
@@ -602,7 +775,7 @@ content.addEventListener('click', event => {
     } else if (!session.finished && (session.mode === 'exam' || !session.answers[id])) {
       session.answers[id] = button.dataset.option;
       if (session.mode !== 'exam') record(session,id,button.dataset.option);
-      save(); renderAtAnswer(`[data-option="${button.dataset.option}"]`);
+      save(); updateAnswer(session,q,button);
     }
   }
 });
